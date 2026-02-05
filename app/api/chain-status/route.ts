@@ -48,16 +48,6 @@ const CHAINS: ChainInfo[] = [
   { name: 'Tezos', symbol: 'XTZ', category: 'Non-EVM', explorer: 'https://tzstats.com' },
 ];
 
-interface GateIOCurrency {
-  currency: string;
-  delisted: boolean;
-  withdraw_disabled: boolean;
-  withdraw_delayed: boolean;
-  deposit_disabled: boolean;
-  trade_disabled: boolean;
-  chain?: string;
-}
-
 interface ExchangeStatus {
   exchange: string;
   deposit: string;
@@ -65,14 +55,24 @@ interface ExchangeStatus {
   available: boolean;
 }
 
-// 符号映射表（处理Gate.io的特殊命名）
+// 符号映射表
 const SYMBOL_MAP: Record<string, string> = {
   'MATIC': 'MATIC',
-  'BASE': 'ETH', // Base使用ETH
+  'BASE': 'ETH',
   'ZK': 'ZK',
-  'LINEA': 'ETH', // Linea使用ETH
-  'SCROLL': 'ETH', // Scroll使用ETH
+  'LINEA': 'ETH',
+  'SCROLL': 'ETH',
 };
+
+// Gate.io
+interface GateIOCurrency {
+  currency: string;
+  delisted: boolean;
+  withdraw_disabled: boolean;
+  withdraw_delayed: boolean;
+  deposit_disabled: boolean;
+  trade_disabled: boolean;
+}
 
 async function fetchGateIOStatus(symbol: string, retries = 3): Promise<ExchangeStatus> {
   const actualSymbol = SYMBOL_MAP[symbol] || symbol;
@@ -82,15 +82,15 @@ async function fetchGateIOStatus(symbol: string, retries = 3): Promise<ExchangeS
       const response = await fetch('https://api.gateio.ws/api/v4/spot/currencies', {
         headers: {
           'Accept': 'application/json',
-          'User-Agent': 'Mozilla/5.0 (compatible; ChainInfo/1.0)',
+          'User-Agent': 'Mozilla/5.0',
         },
-        next: { revalidate: 300 }, // Cache for 5 minutes
-        signal: AbortSignal.timeout(10000), // 10 second timeout
+        next: { revalidate: 300 },
+        signal: AbortSignal.timeout(10000),
       });
 
       if (!response.ok) {
         if (i < retries - 1) {
-          await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1))); // Exponential backoff
+          await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
           continue;
         }
         throw new Error(`Gate.io API error: ${response.status}`);
@@ -99,7 +99,7 @@ async function fetchGateIOStatus(symbol: string, retries = 3): Promise<ExchangeS
       const data: GateIOCurrency[] = await response.json();
       const currency = data.find(c => c.currency.toUpperCase() === actualSymbol.toUpperCase());
 
-      if (!currency) {
+      if (!currency || currency.delisted || currency.trade_disabled) {
         return {
           exchange: 'Gate.io',
           deposit: '不支持',
@@ -108,20 +108,8 @@ async function fetchGateIOStatus(symbol: string, retries = 3): Promise<ExchangeS
         };
       }
 
-      // 检查是否被下架
-      if (currency.delisted || currency.trade_disabled) {
-        return {
-          exchange: 'Gate.io',
-          deposit: '❌ 已下架',
-          withdraw: '❌ 已下架',
-          available: false,
-        };
-      }
-
       const depositStatus = currency.deposit_disabled ? '❌ 关闭' : '✅ 开放';
-      const withdrawStatus = currency.withdraw_disabled || currency.withdraw_delayed 
-        ? '❌ 关闭' 
-        : '✅ 开放';
+      const withdrawStatus = currency.withdraw_disabled || currency.withdraw_delayed ? '❌ 关闭' : '✅ 开放';
 
       return {
         exchange: 'Gate.io',
@@ -134,7 +122,7 @@ async function fetchGateIOStatus(symbol: string, retries = 3): Promise<ExchangeS
         await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
         continue;
       }
-      console.error(`Gate.io API error for ${symbol}:`, error);
+      console.error(`Gate.io error for ${symbol}:`, error);
       return {
         exchange: 'Gate.io',
         deposit: '⚠️ 错误',
@@ -152,59 +140,341 @@ async function fetchGateIOStatus(symbol: string, retries = 3): Promise<ExchangeS
   };
 }
 
+// Binance - 使用公开API
+interface BinanceNetwork {
+  network: string;
+  coin: string;
+  withdrawEnable: boolean;
+  depositEnable: boolean;
+}
+
+async function fetchBinanceStatus(symbol: string): Promise<ExchangeStatus> {
+  try {
+    const actualSymbol = SYMBOL_MAP[symbol] || symbol;
+    
+    // Binance公开的币种信息（无需认证）
+    const response = await fetch(
+      'https://www.binance.com/bapi/asset/v2/public/asset-service/product/get-products',
+      {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0',
+        },
+        next: { revalidate: 600 }, // 10分钟缓存
+        signal: AbortSignal.timeout(10000),
+      }
+    );
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const data = await response.json();
+    
+    if (!data.data) {
+      throw new Error('Invalid response format');
+    }
+
+    // 查找币种
+    const coin = data.data.find((c: any) => 
+      c.coin.toUpperCase() === actualSymbol.toUpperCase()
+    );
+
+    if (!coin || !coin.networkList || coin.networkList.length === 0) {
+      return {
+        exchange: 'Binance',
+        deposit: '不支持',
+        withdraw: '不支持',
+        available: false,
+      };
+    }
+
+    // 检查所有网络，只要有一个开放就算开放
+    const hasDepositOpen = coin.networkList.some((n: any) => n.depositEnable);
+    const hasWithdrawOpen = coin.networkList.some((n: any) => n.withdrawEnable);
+
+    return {
+      exchange: 'Binance',
+      deposit: hasDepositOpen ? '✅ 开放' : '❌ 关闭',
+      withdraw: hasWithdrawOpen ? '✅ 开放' : '❌ 关闭',
+      available: hasDepositOpen || hasWithdrawOpen,
+    };
+  } catch (error) {
+    console.error(`Binance error for ${symbol}:`, error);
+    return {
+      exchange: 'Binance',
+      deposit: '⚠️ 错误',
+      withdraw: '⚠️ 错误',
+      available: false,
+    };
+  }
+}
+
+// OKX - 使用公开API
+async function fetchOKXStatus(symbol: string): Promise<ExchangeStatus> {
+  try {
+    const actualSymbol = SYMBOL_MAP[symbol] || symbol;
+    
+    const response = await fetch('https://www.okx.com/api/v5/asset/currencies', {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0',
+      },
+      next: { revalidate: 600 },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const data = await response.json();
+
+    if (!data.data) {
+      throw new Error('Invalid response format');
+    }
+
+    // 查找币种的所有链
+    const chains = data.data.filter((c: any) => 
+      c.ccy.toUpperCase() === actualSymbol.toUpperCase()
+    );
+
+    if (chains.length === 0) {
+      return {
+        exchange: 'OKX',
+        deposit: '不支持',
+        withdraw: '不支持',
+        available: false,
+      };
+    }
+
+    // 检查是否有任何链开放
+    const hasDepositOpen = chains.some((c: any) => c.canDep);
+    const hasWithdrawOpen = chains.some((c: any) => c.canWd);
+
+    return {
+      exchange: 'OKX',
+      deposit: hasDepositOpen ? '✅ 开放' : '❌ 关闭',
+      withdraw: hasWithdrawOpen ? '✅ 开放' : '❌ 关闭',
+      available: hasDepositOpen || hasWithdrawOpen,
+    };
+  } catch (error) {
+    console.error(`OKX error for ${symbol}:`, error);
+    return {
+      exchange: 'OKX',
+      deposit: '⚠️ 错误',
+      withdraw: '⚠️ 错误',
+      available: false,
+    };
+  }
+}
+
+// Bybit - 使用公开API
+async function fetchBybitStatus(symbol: string): Promise<ExchangeStatus> {
+  try {
+    const actualSymbol = SYMBOL_MAP[symbol] || symbol;
+    
+    const response = await fetch(
+      `https://api.bybit.com/v5/asset/coin/query-info?coin=${actualSymbol}`,
+      {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0',
+        },
+        next: { revalidate: 600 },
+        signal: AbortSignal.timeout(10000),
+      }
+    );
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const data = await response.json();
+
+    if (!data.result || !data.result.rows || data.result.rows.length === 0) {
+      return {
+        exchange: 'Bybit',
+        deposit: '不支持',
+        withdraw: '不支持',
+        available: false,
+      };
+    }
+
+    const coin = data.result.rows[0];
+    
+    if (!coin.chains || coin.chains.length === 0) {
+      return {
+        exchange: 'Bybit',
+        deposit: '不支持',
+        withdraw: '不支持',
+        available: false,
+      };
+    }
+
+    // 检查所有链
+    const hasDepositOpen = coin.chains.some((c: any) => c.chainDeposit === '1');
+    const hasWithdrawOpen = coin.chains.some((c: any) => c.chainWithdraw === '1');
+
+    return {
+      exchange: 'Bybit',
+      deposit: hasDepositOpen ? '✅ 开放' : '❌ 关闭',
+      withdraw: hasWithdrawOpen ? '✅ 开放' : '❌ 关闭',
+      available: hasDepositOpen || hasWithdrawOpen,
+    };
+  } catch (error) {
+    console.error(`Bybit error for ${symbol}:`, error);
+    return {
+      exchange: 'Bybit',
+      deposit: '⚠️ 错误',
+      withdraw: '⚠️ 错误',
+      available: false,
+    };
+  }
+}
+
+// Bitget - 使用公开API
+async function fetchBitgetStatus(symbol: string): Promise<ExchangeStatus> {
+  try {
+    const actualSymbol = SYMBOL_MAP[symbol] || symbol;
+    
+    const response = await fetch('https://api.bitget.com/api/v2/spot/public/coins', {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0',
+      },
+      next: { revalidate: 600 },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const data = await response.json();
+
+    if (!data.data) {
+      throw new Error('Invalid response format');
+    }
+
+    const coin = data.data.find((c: any) => 
+      c.coin.toUpperCase() === actualSymbol.toUpperCase()
+    );
+
+    if (!coin || !coin.chains || coin.chains.length === 0) {
+      return {
+        exchange: 'Bitget',
+        deposit: '不支持',
+        withdraw: '不支持',
+        available: false,
+      };
+    }
+
+    // 检查所有链
+    const hasDepositOpen = coin.chains.some((c: any) => c.rechargeable === 'true' || c.rechargeable === true);
+    const hasWithdrawOpen = coin.chains.some((c: any) => c.withdrawable === 'true' || c.withdrawable === true);
+
+    return {
+      exchange: 'Bitget',
+      deposit: hasDepositOpen ? '✅ 开放' : '❌ 关闭',
+      withdraw: hasWithdrawOpen ? '✅ 开放' : '❌ 关闭',
+      available: hasDepositOpen || hasWithdrawOpen,
+    };
+  } catch (error) {
+    console.error(`Bitget error for ${symbol}:`, error);
+    return {
+      exchange: 'Bitget',
+      deposit: '⚠️ 错误',
+      withdraw: '⚠️ 错误',
+      available: false,
+    };
+  }
+}
+
+// MEXC - 使用公开API
+async function fetchMEXCStatus(symbol: string): Promise<ExchangeStatus> {
+  try {
+    const actualSymbol = SYMBOL_MAP[symbol] || symbol;
+    
+    const response = await fetch('https://api.mexc.com/api/v3/capital/config/getall', {
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0',
+      },
+      next: { revalidate: 600 },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const data = await response.json();
+
+    if (!Array.isArray(data)) {
+      throw new Error('Invalid response format');
+    }
+
+    const coin = data.find((c: any) => 
+      c.coin.toUpperCase() === actualSymbol.toUpperCase()
+    );
+
+    if (!coin || !coin.networkList || coin.networkList.length === 0) {
+      return {
+        exchange: 'MEXC',
+        deposit: '不支持',
+        withdraw: '不支持',
+        available: false,
+      };
+    }
+
+    // 检查所有网络
+    const hasDepositOpen = coin.networkList.some((n: any) => n.depositEnable);
+    const hasWithdrawOpen = coin.networkList.some((n: any) => n.withdrawEnable);
+
+    return {
+      exchange: 'MEXC',
+      deposit: hasDepositOpen ? '✅ 开放' : '❌ 关闭',
+      withdraw: hasWithdrawOpen ? '✅ 开放' : '❌ 关闭',
+      available: hasDepositOpen || hasWithdrawOpen,
+    };
+  } catch (error) {
+    console.error(`MEXC error for ${symbol}:`, error);
+    return {
+      exchange: 'MEXC',
+      deposit: '⚠️ 错误',
+      withdraw: '⚠️ 错误',
+      available: false,
+    };
+  }
+}
+
 export async function GET() {
   try {
-    // 并发获取所有链的状态，限制并发数量避免API限流
-    const batchSize = 10;
+    const batchSize = 5; // 减少并发数避免被限流
     const results = [];
     
     for (let i = 0; i < CHAINS.length; i += batchSize) {
       const batch = CHAINS.slice(i, i + batchSize);
       const batchResults = await Promise.all(
         batch.map(async (chain) => {
-          const gateStatus = await fetchGateIOStatus(chain.symbol);
+          // 并行获取所有交易所状态
+          const [gateStatus, binanceStatus, okxStatus, bybitStatus, bitgetStatus, mexcStatus] = 
+            await Promise.all([
+              fetchGateIOStatus(chain.symbol),
+              fetchBinanceStatus(chain.symbol),
+              fetchOKXStatus(chain.symbol),
+              fetchBybitStatus(chain.symbol),
+              fetchBitgetStatus(chain.symbol),
+              fetchMEXCStatus(chain.symbol),
+            ]);
           
           return {
             ...chain,
             exchanges: {
               'Gate.io': gateStatus,
-              'Binance': { 
-                exchange: 'Binance', 
-                deposit: '即将支持', 
-                withdraw: '即将支持', 
-                available: false 
-              },
-              'OKX': { 
-                exchange: 'OKX', 
-                deposit: '即将支持', 
-                withdraw: '即将支持', 
-                available: false 
-              },
-              'Bybit': { 
-                exchange: 'Bybit', 
-                deposit: '即将支持', 
-                withdraw: '即将支持', 
-                available: false 
-              },
-              'Bitget': { 
-                exchange: 'Bitget', 
-                deposit: '即将支持', 
-                withdraw: '即将支持', 
-                available: false 
-              },
-              'MEXC': { 
-                exchange: 'MEXC', 
-                deposit: '即将支持', 
-                withdraw: '即将支持', 
-                available: false 
-              },
+              'Binance': binanceStatus,
+              'OKX': okxStatus,
+              'Bybit': bybitStatus,
+              'Bitget': bitgetStatus,
+              'MEXC': mexcStatus,
             },
           };
         })
       );
       results.push(...batchResults);
       
-      // 避免API限流，批次间加延迟
+      // 批次间延迟
       if (i + batchSize < CHAINS.length) {
         await new Promise(resolve => setTimeout(resolve, 500));
       }

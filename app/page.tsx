@@ -23,6 +23,8 @@ interface ApiResponse {
   timestamp: string;
 }
 
+type ViewMode = 'chain' | 'coin';
+
 export default function Home() {
   const [data, setData] = useState<ChainData[]>([]);
   const [filteredData, setFilteredData] = useState<ChainData[]>([]);
@@ -31,6 +33,8 @@ export default function Home() {
   const [lastUpdate, setLastUpdate] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
+  const [viewMode, setViewMode] = useState<ViewMode>('chain');
+  const [coinSearch, setCoinSearch] = useState('');
 
   const fetchData = async () => {
     try {
@@ -64,13 +68,14 @@ export default function Home() {
 
   useEffect(() => {
     fetchData();
-    // 自动刷新：每5分钟
     const interval = setInterval(fetchData, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 
-  // 搜索和筛选
+  // 链视图筛选
   useEffect(() => {
+    if (viewMode !== 'chain') return;
+    
     let filtered = data;
     
     if (searchTerm) {
@@ -85,228 +90,350 @@ export default function Home() {
     }
     
     setFilteredData(filtered);
-  }, [searchTerm, categoryFilter, data]);
+  }, [searchTerm, categoryFilter, data, viewMode]);
 
   const exchanges = ['Gate.io', 'Binance', 'OKX', 'Bybit', 'Bitget', 'MEXC'];
   const categories = ['All', ...Array.from(new Set(data.map(c => c.category)))];
 
-  const getStatusIcon = (status: string) => {
-    if (status.includes('✅') || status.includes('Open')) {
-      return <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-2"></span>;
-    } else if (status.includes('❌') || status.includes('Disabled')) {
-      return <span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-2"></span>;
-    } else if (status.includes('⚠️') || status.includes('Error')) {
-      return <span className="inline-block w-2 h-2 rounded-full bg-yellow-500 mr-2"></span>;
-    } else {
-      return <span className="inline-block w-2 h-2 rounded-full bg-gray-500 mr-2"></span>;
-    }
+  const getStatusColor = (status: string) => {
+    if (status.includes('✅') || status.includes('开放')) return 'text-green-400';
+    if (status.includes('❌') || status.includes('关闭')) return 'text-red-400';
+    if (status.includes('⚠️')) return 'text-yellow-400';
+    return 'text-gray-400';
+  };
+
+  const getStatusBg = (status: string) => {
+    if (status.includes('✅') || status.includes('开放')) return 'bg-green-500/10';
+    if (status.includes('❌') || status.includes('关闭')) return 'bg-red-500/10';
+    if (status.includes('⚠️')) return 'bg-yellow-500/10';
+    return 'bg-gray-500/10';
   };
 
   const getStatusText = (status: string) => {
     return status.replace(/[✅❌⚠️]/g, '').trim();
   };
 
+  // 币种搜索：找到所有包含该币种的链和交易所状态
+  const getCoinSearchResults = () => {
+    if (!coinSearch.trim()) return [];
+    
+    const results: Array<{
+      chain: string;
+      symbol: string;
+      category: string;
+      explorer: string;
+      exchanges: Record<string, ExchangeStatus>;
+    }> = [];
+
+    // 搜索所有链中包含该币种的
+    data.forEach(chain => {
+      if (chain.symbol.toLowerCase().includes(coinSearch.toLowerCase()) ||
+          chain.name.toLowerCase().includes(coinSearch.toLowerCase())) {
+        results.push({
+          chain: chain.name,
+          symbol: chain.symbol,
+          category: chain.category,
+          explorer: chain.explorer,
+          exchanges: chain.exchanges
+        });
+      }
+    });
+
+    return results;
+  };
+
+  const coinResults = viewMode === 'coin' ? getCoinSearchResults() : [];
+
   return (
-    <main className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-3 md:p-8">
-      <div className="max-w-7xl mx-auto">
+    <main className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-3 md:p-6">
+      <div className="max-w-[1600px] mx-auto">
         {/* Header */}
-        <div className="mb-6 md:mb-10 text-center">
-          <div className="flex items-center justify-center gap-3 mb-4">
-            <div className="text-4xl md:text-5xl">🔗</div>
-            <h1 className="text-3xl md:text-5xl font-bold text-white">
+        <div className="mb-4 md:mb-6 text-center">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <div className="text-3xl md:text-4xl">🔗</div>
+            <h1 className="text-2xl md:text-4xl font-bold text-white">
               Chain Info Dashboard
             </h1>
           </div>
-          <p className="text-gray-400 text-base md:text-lg mb-2">
+          <p className="text-gray-400 text-sm md:text-base mb-1">
             实时监控主流交易所充提状态
           </p>
           {lastUpdate && (
-            <p className="text-gray-500 text-xs md:text-sm">
+            <p className="text-gray-500 text-xs">
               最后更新: {lastUpdate}
             </p>
           )}
         </div>
 
-        {/* Controls */}
-        <div className="mb-6 space-y-4">
-          {/* Search and Refresh */}
-          <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-            <input
-              type="text"
-              placeholder="🔍 搜索链名称或符号..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="flex-1 px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-            <button
-              onClick={fetchData}
-              disabled={loading}
-              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-all duration-200 shadow-lg hover:shadow-xl hover:scale-105 active:scale-95 whitespace-nowrap"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  加载中...
-                </span>
-              ) : (
-                '🔄 刷新数据'
-              )}
-            </button>
-          </div>
-
-          {/* Category Filter */}
-          <div className="flex flex-wrap gap-2">
-            {categories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setCategoryFilter(cat)}
-                className={`px-4 py-2 rounded-lg font-medium transition-all duration-200 ${
-                  categoryFilter === cat
-                    ? 'bg-purple-600 text-white shadow-lg'
-                    : 'bg-slate-800/50 text-gray-400 hover:bg-slate-700 hover:text-white'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
+        {/* View Mode Toggle */}
+        <div className="mb-4 flex justify-center gap-2">
+          <button
+            onClick={() => setViewMode('chain')}
+            className={`px-4 py-2 rounded-lg font-medium transition-all text-sm ${
+              viewMode === 'chain'
+                ? 'bg-blue-600 text-white shadow-lg'
+                : 'bg-slate-800/50 text-gray-400 hover:bg-slate-700 hover:text-white'
+            }`}
+          >
+            🔗 链视图
+          </button>
+          <button
+            onClick={() => setViewMode('coin')}
+            className={`px-4 py-2 rounded-lg font-medium transition-all text-sm ${
+              viewMode === 'coin'
+                ? 'bg-blue-600 text-white shadow-lg'
+                : 'bg-slate-800/50 text-gray-400 hover:bg-slate-700 hover:text-white'
+            }`}
+          >
+            💰 币种查询
+          </button>
         </div>
+
+        {/* Controls */}
+        {viewMode === 'chain' ? (
+          <div className="mb-4 space-y-3">
+            <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+              <input
+                type="text"
+                placeholder="🔍 搜索链名称或符号..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="flex-1 px-3 py-2 text-sm bg-slate-800/50 border border-slate-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                onClick={fetchData}
+                disabled={loading}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 text-white rounded-lg font-medium transition-all text-sm whitespace-nowrap"
+              >
+                {loading ? '加载中...' : '🔄 刷新'}
+              </button>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {categories.map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setCategoryFilter(cat)}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                    categoryFilter === cat
+                      ? 'bg-purple-600 text-white'
+                      : 'bg-slate-800/50 text-gray-400 hover:bg-slate-700'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="mb-4">
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="text"
+                placeholder="💰 输入币种符号，如 USDT、ETH、BTC..."
+                value={coinSearch}
+                onChange={(e) => setCoinSearch(e.target.value)}
+                className="flex-1 px-4 py-3 text-sm bg-slate-800/50 border border-slate-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                onClick={fetchData}
+                disabled={loading}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 text-white rounded-lg font-medium transition-all text-sm whitespace-nowrap"
+              >
+                {loading ? '加载中...' : '🔄 刷新'}
+              </button>
+            </div>
+            <p className="text-gray-400 text-xs mt-2">
+              💡 输入币种符号查询该币在各交易所的充提状态
+            </p>
+          </div>
+        )}
 
         {/* Error State */}
         {error && (
-          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/50 rounded-lg text-red-400 flex items-center gap-3 backdrop-blur-sm">
-            <svg className="w-6 h-6 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-            </svg>
-            <span>{error}</span>
+          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/50 rounded-lg text-red-400 text-sm">
+            {error}
           </div>
         )}
 
         {/* Loading State */}
         {loading && data.length === 0 && (
           <div className="text-center text-gray-400 py-20">
-            <div className="flex justify-center mb-6">
-              <svg className="animate-spin h-16 w-16 text-blue-500" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-            </div>
-            <p className="text-lg">正在加载链数据...</p>
+            <p className="text-sm">正在加载链数据...</p>
           </div>
         )}
 
-        {/* Empty State */}
-        {!loading && filteredData.length === 0 && data.length > 0 && (
-          <div className="text-center text-gray-400 py-20">
-            <div className="text-6xl mb-4">🔍</div>
-            <p className="text-lg">未找到匹配的链</p>
-          </div>
-        )}
-
-        {/* Data Grid */}
-        {!loading && filteredData.length > 0 && (
-          <div className="space-y-4 md:space-y-6">
-            {filteredData.map((chain) => (
-              <div
-                key={chain.symbol}
-                className="bg-slate-800/40 backdrop-blur-sm rounded-xl p-4 md:p-6 shadow-2xl border border-slate-700/50 hover:border-slate-600/50 transition-all duration-300 hover:shadow-blue-500/10"
-              >
-                {/* Chain Header */}
-                <div className="mb-4 pb-4 border-b border-slate-700/50">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div className="flex-1">
-                      <h2 className="text-xl md:text-2xl font-bold text-white mb-2 flex items-center gap-2">
-                        <span>{chain.name}</span>
-                        <span className="text-gray-400 font-mono text-base md:text-lg">({chain.symbol})</span>
-                      </h2>
-                      <div className="flex flex-wrap gap-2">
-                        <span className="px-3 py-1 bg-gradient-to-r from-purple-600/30 to-purple-500/30 text-purple-300 rounded-full text-xs md:text-sm font-medium border border-purple-500/30">
+        {/* 链视图 - 紧凑表格 */}
+        {viewMode === 'chain' && !loading && filteredData.length > 0 && (
+          <div className="overflow-x-auto">
+            <div className="bg-slate-800/40 backdrop-blur-sm rounded-xl border border-slate-700/50 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-700/50">
+                  <tr>
+                    <th className="sticky left-0 z-10 bg-slate-700/90 px-3 py-2 text-left text-white font-semibold">链</th>
+                    <th className="px-3 py-2 text-left text-white font-semibold whitespace-nowrap">符号</th>
+                    <th className="px-3 py-2 text-left text-white font-semibold">类别</th>
+                    {exchanges.map(ex => (
+                      <th key={ex} className="px-2 py-2 text-center text-white font-semibold text-xs whitespace-nowrap border-l border-slate-600/50">
+                        {ex}
+                      </th>
+                    ))}
+                    <th className="px-2 py-2 text-center text-white font-semibold text-xs border-l border-slate-600/50">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-700/30">
+                  {filteredData.map((chain, idx) => (
+                    <tr key={chain.symbol} className={`hover:bg-slate-700/20 transition-colors ${idx % 2 === 0 ? 'bg-slate-800/20' : ''}`}>
+                      <td className="sticky left-0 z-10 bg-slate-800/90 px-3 py-2 font-medium text-white whitespace-nowrap">
+                        {chain.name}
+                      </td>
+                      <td className="px-3 py-2 text-gray-300 font-mono text-xs">{chain.symbol}</td>
+                      <td className="px-3 py-2">
+                        <span className="px-2 py-1 bg-purple-500/20 text-purple-300 rounded text-xs border border-purple-500/30">
                           {chain.category}
                         </span>
+                      </td>
+                      {exchanges.map(exchangeName => {
+                        const status = chain.exchanges[exchangeName];
+                        const isAvailable = status.deposit.includes('✅') || status.withdraw.includes('✅');
+                        return (
+                          <td key={exchangeName} className="px-2 py-2 border-l border-slate-700/30">
+                            <div className="space-y-1">
+                              <div className={`px-1.5 py-0.5 rounded text-[10px] text-center ${getStatusBg(status.deposit)}`}>
+                                <span className={getStatusColor(status.deposit)}>
+                                  充: {getStatusText(status.deposit)}
+                                </span>
+                              </div>
+                              <div className={`px-1.5 py-0.5 rounded text-[10px] text-center ${getStatusBg(status.withdraw)}`}>
+                                <span className={getStatusColor(status.withdraw)}>
+                                  提: {getStatusText(status.withdraw)}
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+                        );
+                      })}
+                      <td className="px-2 py-2 text-center border-l border-slate-700/30">
                         <a
                           href={chain.explorer}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="px-3 py-1 bg-gradient-to-r from-blue-600/30 to-blue-500/30 text-blue-300 rounded-full text-xs md:text-sm font-medium border border-blue-500/30 hover:from-blue-600/50 hover:to-blue-500/50 transition-all duration-200 flex items-center gap-1"
+                          className="inline-block px-2 py-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 rounded text-xs transition-colors"
                         >
-                          🔍 浏览器
+                          浏览器
                         </a>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Exchange Status Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
-                  {exchanges.map((exchangeName) => {
-                    const status = chain.exchanges[exchangeName];
-                    const isAvailable = status.deposit.includes('✅') || status.withdraw.includes('✅');
-                    const isComingSoon = status.deposit.includes('Coming Soon');
-                    
-                    return (
-                      <div
-                        key={exchangeName}
-                        className={`rounded-lg p-4 border transition-all duration-200 ${
-                          isAvailable
-                            ? 'bg-slate-700/30 border-slate-600/50 hover:border-slate-500/50'
-                            : isComingSoon
-                            ? 'bg-slate-800/20 border-slate-700/30'
-                            : 'bg-red-900/10 border-red-800/30'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-3">
-                          <h3 className="font-semibold text-white text-sm md:text-base">
-                            {exchangeName}
-                          </h3>
-                          {isAvailable && (
-                            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                          )}
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex justify-between items-center">
-                            <span className="text-gray-400 text-xs md:text-sm">充值:</span>
-                            <span className="font-medium text-xs md:text-sm flex items-center text-gray-300">
-                              {getStatusIcon(status.deposit)}
-                              {getStatusText(status.deposit)}
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-gray-400 text-xs md:text-sm">提现:</span>
-                            <span className="font-medium text-xs md:text-sm flex items-center text-gray-300">
-                              {getStatusIcon(status.withdraw)}
-                              {getStatusText(status.withdraw)}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-3 text-center text-gray-400 text-xs">
+              显示 <span className="text-white font-semibold">{filteredData.length}</span> / <span className="text-white font-semibold">{data.length}</span> 条链信息
+            </div>
           </div>
         )}
 
-        {/* Stats Footer */}
-        {!loading && filteredData.length > 0 && (
-          <div className="mt-8 p-4 bg-slate-800/30 rounded-lg border border-slate-700/50 text-center">
-            <p className="text-gray-400 text-sm">
-              显示 <span className="text-white font-semibold">{filteredData.length}</span> / <span className="text-white font-semibold">{data.length}</span> 条链信息
-            </p>
+        {/* 币种查询视图 */}
+        {viewMode === 'coin' && !loading && coinSearch && (
+          <div>
+            {coinResults.length === 0 ? (
+              <div className="text-center text-gray-400 py-20">
+                <div className="text-4xl mb-3">🔍</div>
+                <p className="text-sm">未找到匹配的币种</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="text-center mb-4">
+                  <h2 className="text-xl text-white font-semibold">
+                    找到 <span className="text-blue-400">{coinResults.length}</span> 个相关链
+                  </h2>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <div className="bg-slate-800/40 backdrop-blur-sm rounded-xl border border-slate-700/50 overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-700/50">
+                        <tr>
+                          <th className="sticky left-0 z-10 bg-slate-700/90 px-3 py-2 text-left text-white font-semibold">链</th>
+                          <th className="px-3 py-2 text-left text-white font-semibold whitespace-nowrap">符号</th>
+                          <th className="px-3 py-2 text-left text-white font-semibold">类别</th>
+                          {exchanges.map(ex => (
+                            <th key={ex} className="px-2 py-2 text-center text-white font-semibold text-xs whitespace-nowrap border-l border-slate-600/50">
+                              {ex}
+                            </th>
+                          ))}
+                          <th className="px-2 py-2 text-center text-white font-semibold text-xs border-l border-slate-600/50">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-700/30">
+                        {coinResults.map((result, idx) => (
+                          <tr key={result.symbol} className={`hover:bg-slate-700/20 transition-colors ${idx % 2 === 0 ? 'bg-slate-800/20' : ''}`}>
+                            <td className="sticky left-0 z-10 bg-slate-800/90 px-3 py-2 font-medium text-white whitespace-nowrap">
+                              {result.chain}
+                            </td>
+                            <td className="px-3 py-2 text-gray-300 font-mono text-xs">{result.symbol}</td>
+                            <td className="px-3 py-2">
+                              <span className="px-2 py-1 bg-purple-500/20 text-purple-300 rounded text-xs border border-purple-500/30">
+                                {result.category}
+                              </span>
+                            </td>
+                            {exchanges.map(exchangeName => {
+                              const status = result.exchanges[exchangeName];
+                              return (
+                                <td key={exchangeName} className="px-2 py-2 border-l border-slate-700/30">
+                                  <div className="space-y-1">
+                                    <div className={`px-1.5 py-0.5 rounded text-[10px] text-center ${getStatusBg(status.deposit)}`}>
+                                      <span className={getStatusColor(status.deposit)}>
+                                        充: {getStatusText(status.deposit)}
+                                      </span>
+                                    </div>
+                                    <div className={`px-1.5 py-0.5 rounded text-[10px] text-center ${getStatusBg(status.withdraw)}`}>
+                                      <span className={getStatusColor(status.withdraw)}>
+                                        提: {getStatusText(status.withdraw)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </td>
+                              );
+                            })}
+                            <td className="px-2 py-2 text-center border-l border-slate-700/30">
+                              <a
+                                href={result.explorer}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-block px-2 py-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 rounded text-xs transition-colors"
+                              >
+                                浏览器
+                              </a>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Empty State for Coin Search */}
+        {viewMode === 'coin' && !loading && !coinSearch && (
+          <div className="text-center text-gray-400 py-20">
+            <div className="text-5xl mb-4">💰</div>
+            <p className="text-lg mb-2">输入币种符号开始查询</p>
+            <p className="text-sm text-gray-500">例如: USDT、ETH、BTC</p>
           </div>
         )}
 
         {/* Footer */}
-        <div className="mt-12 text-center text-gray-500 text-xs md:text-sm space-y-2">
+        <div className="mt-8 text-center text-gray-500 text-xs space-y-1">
           <div className="flex items-center justify-center gap-2">
             <span className="w-2 h-2 rounded-full bg-green-500"></span>
-            <p>MVP版本 - Gate.io 实时数据已接入</p>
+            <p>Gate.io 实时数据已接入 | 其他交易所即将支持</p>
           </div>
-          <p>其他交易所即将接入（需要 API Keys 或 Cookies）</p>
-          <p className="text-gray-600 text-xs mt-4">数据每5分钟自动刷新</p>
+          <p className="text-gray-600">数据每5分钟自动刷新</p>
         </div>
       </div>
     </main>
