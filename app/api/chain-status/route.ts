@@ -141,13 +141,6 @@ async function fetchGateIOStatus(symbol: string, retries = 3): Promise<ExchangeS
 }
 
 // Binance - 使用公开API
-interface BinanceNetwork {
-  network: string;
-  coin: string;
-  withdrawEnable: boolean;
-  depositEnable: boolean;
-}
-
 async function fetchBinanceStatus(symbol: string): Promise<ExchangeStatus> {
   try {
     const actualSymbol = SYMBOL_MAP[symbol] || symbol;
