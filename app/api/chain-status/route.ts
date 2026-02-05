@@ -174,7 +174,7 @@ async function fetchBinanceStatus(symbol: string): Promise<ExchangeStatus> {
     }
 
     // 查找币种
-    const coin = data.data.find((c: any) => 
+    const coin = data.data.find((c: {coin: string}) => 
       c.coin.toUpperCase() === actualSymbol.toUpperCase()
     );
 
@@ -188,8 +188,8 @@ async function fetchBinanceStatus(symbol: string): Promise<ExchangeStatus> {
     }
 
     // 检查所有网络，只要有一个开放就算开放
-    const hasDepositOpen = coin.networkList.some((n: any) => n.depositEnable);
-    const hasWithdrawOpen = coin.networkList.some((n: any) => n.withdrawEnable);
+    const hasDepositOpen = coin.networkList.some((n: {depositEnable: boolean}) => n.depositEnable);
+    const hasWithdrawOpen = coin.networkList.some((n: {withdrawEnable: boolean}) => n.withdrawEnable);
 
     return {
       exchange: 'Binance',
@@ -231,7 +231,7 @@ async function fetchOKXStatus(symbol: string): Promise<ExchangeStatus> {
     }
 
     // 查找币种的所有链
-    const chains = data.data.filter((c: any) => 
+    const chains = data.data.filter((c: {ccy: string; canDep: boolean; canWd: boolean}) => 
       c.ccy.toUpperCase() === actualSymbol.toUpperCase()
     );
 
@@ -245,8 +245,8 @@ async function fetchOKXStatus(symbol: string): Promise<ExchangeStatus> {
     }
 
     // 检查是否有任何链开放
-    const hasDepositOpen = chains.some((c: any) => c.canDep);
-    const hasWithdrawOpen = chains.some((c: any) => c.canWd);
+    const hasDepositOpen = chains.some((c: {canDep: boolean}) => c.canDep);
+    const hasWithdrawOpen = chains.some((c: {canWd: boolean}) => c.canWd);
 
     return {
       exchange: 'OKX',
@@ -307,8 +307,8 @@ async function fetchBybitStatus(symbol: string): Promise<ExchangeStatus> {
     }
 
     // 检查所有链
-    const hasDepositOpen = coin.chains.some((c: any) => c.chainDeposit === '1');
-    const hasWithdrawOpen = coin.chains.some((c: any) => c.chainWithdraw === '1');
+    const hasDepositOpen = coin.chains.some((c: {chainDeposit: string}) => c.chainDeposit === '1');
+    const hasWithdrawOpen = coin.chains.some((c: {chainWithdraw: string}) => c.chainWithdraw === '1');
 
     return {
       exchange: 'Bybit',
@@ -349,7 +349,7 @@ async function fetchBitgetStatus(symbol: string): Promise<ExchangeStatus> {
       throw new Error('Invalid response format');
     }
 
-    const coin = data.data.find((c: any) => 
+    const coin = data.data.find((c: {coin: string; chains?: unknown[]}) => 
       c.coin.toUpperCase() === actualSymbol.toUpperCase()
     );
 
@@ -363,8 +363,8 @@ async function fetchBitgetStatus(symbol: string): Promise<ExchangeStatus> {
     }
 
     // 检查所有链
-    const hasDepositOpen = coin.chains.some((c: any) => c.rechargeable === 'true' || c.rechargeable === true);
-    const hasWithdrawOpen = coin.chains.some((c: any) => c.withdrawable === 'true' || c.withdrawable === true);
+    const hasDepositOpen = coin.chains.some((c: {rechargeable: string | boolean}) => c.rechargeable === 'true' || c.rechargeable === true);
+    const hasWithdrawOpen = coin.chains.some((c: {withdrawable: string | boolean}) => c.withdrawable === 'true' || c.withdrawable === true);
 
     return {
       exchange: 'Bitget',
@@ -405,7 +405,7 @@ async function fetchMEXCStatus(symbol: string): Promise<ExchangeStatus> {
       throw new Error('Invalid response format');
     }
 
-    const coin = data.find((c: any) => 
+    const coin = data.find((c: {coin: string; networkList?: unknown[]}) => 
       c.coin.toUpperCase() === actualSymbol.toUpperCase()
     );
 
@@ -419,8 +419,8 @@ async function fetchMEXCStatus(symbol: string): Promise<ExchangeStatus> {
     }
 
     // 检查所有网络
-    const hasDepositOpen = coin.networkList.some((n: any) => n.depositEnable);
-    const hasWithdrawOpen = coin.networkList.some((n: any) => n.withdrawEnable);
+    const hasDepositOpen = coin.networkList.some((n: {depositEnable: boolean}) => n.depositEnable);
+    const hasWithdrawOpen = coin.networkList.some((n: {withdrawEnable: boolean}) => n.withdrawEnable);
 
     return {
       exchange: 'MEXC',

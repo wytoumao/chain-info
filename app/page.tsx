@@ -295,7 +295,6 @@ export default function Home() {
                       </td>
                       {exchanges.map(exchangeName => {
                         const status = chain.exchanges[exchangeName];
-                        const isAvailable = status.deposit.includes('✅') || status.withdraw.includes('✅');
                         return (
                           <td key={exchangeName} className="px-2 py-2 border-l border-slate-700/30">
                             <div className="space-y-1">
